@@ -4,30 +4,12 @@ from datetime import datetime
 import os
 import json
 from utils.auth import register_user, verify_login, user_exists, is_admin, make_admin
-from streamlit_cookies_manager import CookieManager
-
-# Page configuration (MUST be first)
-st.set_page_config(
-    page_title="Learning Progress Tracker",
-    page_icon="📚",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Initialize cookie manager (after set_page_config)
-cookies = CookieManager()
 
 # Initialize session state
 if 'courses' not in st.session_state:
     st.session_state.courses = []
 if 'logged_in' not in st.session_state:
-    # Check if user is saved in cookies
-    if cookies.get('username') and cookies.get('session_token'):
-        st.session_state.logged_in = True
-        st.session_state.username = cookies.get('username')
-        st.session_state.is_admin = is_admin(cookies.get('username'))
-    else:
-        st.session_state.logged_in = False
+    st.session_state.logged_in = False
 if 'username' not in st.session_state:
     st.session_state.username = None
 if 'is_admin' not in st.session_state:
@@ -59,19 +41,11 @@ if not st.session_state.logged_in:
             st.subheader("Login")
             login_user = st.text_input("Username", key="login_user")
             login_pass = st.text_input("Password", type="password", key="login_pass")
-            remember_me = st.checkbox("Remember me on this device")
             if st.button("Login", key="login_btn"):
                 if verify_login(login_user, login_pass):
                     st.session_state.logged_in = True
                     st.session_state.username = login_user
                     st.session_state.is_admin = is_admin(login_user)
-                    
-                    # Save to cookies if remember me is checked
-                    if remember_me:
-                        cookies['username'] = login_user
-                        cookies['session_token'] = 'logged_in'
-                        cookies.save()
-                    
                     st.rerun()
                 else:
                     st.error("Invalid username or password")
@@ -117,10 +91,6 @@ else:
         st.session_state.logged_in = False
         st.session_state.username = None
         st.session_state.is_admin = False
-        # Clear cookies
-        cookies.delete('username')
-        cookies.delete('session_token')
-        cookies.save()
         st.rerun()
 
     # Main content
