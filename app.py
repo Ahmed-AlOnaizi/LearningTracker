@@ -48,29 +48,29 @@ if not st.session_state.logged_in:
             # Check if this is first time setup by checking if any users exist
             existing_users = get_all_users()
             first_time_setup = len(existing_users) == 0
-            
+
             if first_time_setup:
-            st.info("🔐 First time setup - Create your admin account")
-            with st.form("setup_admin_form"):
-                setup_user = st.text_input("Choose Admin Username")
-                setup_pass = st.text_input("Choose Admin Password", type="password")
-                setup_pass_confirm = st.text_input("Confirm Password", type="password")
-                
-                if st.form_submit_button("Create Admin Account"):
-                    if not setup_user or not setup_pass:
-                        st.error("Username and password required")
-                    elif setup_pass != setup_pass_confirm:
-                        st.error("Passwords don't match")
-                    else:
-                        success, msg = register_user(setup_user, setup_pass, is_admin=True)
-                        if success:
-                            st.success("✅ Admin account created! Logging in...")
-                            st.session_state.logged_in = True
-                            st.session_state.username = setup_user
-                            st.session_state.is_admin = True
-                            st.rerun()
+                st.info("🔐 First time setup - Create your admin account")
+                with st.form("setup_admin_form"):
+                    setup_user = st.text_input("Choose Admin Username")
+                    setup_pass = st.text_input("Choose Admin Password", type="password")
+                    setup_pass_confirm = st.text_input("Confirm Password", type="password")
+
+                    if st.form_submit_button("Create Admin Account"):
+                        if not setup_user or not setup_pass:
+                            st.error("Username and password required")
+                        elif setup_pass != setup_pass_confirm:
+                            st.error("Passwords don't match")
                         else:
-                            st.error(f"❌ {msg}")
+                            success, msg = register_user(setup_user, setup_pass, is_admin=True)
+                            if success:
+                                st.success("✅ Admin account created! Logging in...")
+                                st.session_state.logged_in = True
+                                st.session_state.username = setup_user
+                                st.session_state.is_admin = True
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg}")
             else:
                 auth_tab1, auth_tab2 = st.tabs(["Login", "Register"])
             
