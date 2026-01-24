@@ -38,16 +38,18 @@ if not st.session_state.logged_in:
     with col2:
         st.title("📚 Learning Tracker")
         
-        # Check if this is first time setup
-        first_time_setup = not os.path.exists(USERS_FILE) or os.path.getsize(USERS_FILE) == 0
-        
         # Check if Supabase is configured
-        from utils.auth import USE_SUPABASE
+        from utils.auth import USE_SUPABASE, get_all_users
         
         if not USE_SUPABASE:
             st.error("❌ Database not configured")
             st.info("Admin needs to set up Supabase credentials. See SUPABASE_SETUP.md for instructions.")
-        elif first_time_setup:
+        else:
+            # Check if this is first time setup by checking if any users exist
+            existing_users = get_all_users()
+            first_time_setup = len(existing_users) == 0
+            
+            if first_time_setup:
             st.info("🔐 First time setup - Create your admin account")
             with st.form("setup_admin_form"):
                 setup_user = st.text_input("Choose Admin Username")
@@ -69,8 +71,8 @@ if not st.session_state.logged_in:
                             st.rerun()
                         else:
                             st.error(f"❌ {msg}")
-        else:
-            auth_tab1, auth_tab2 = st.tabs(["Login", "Register"])
+            else:
+                auth_tab1, auth_tab2 = st.tabs(["Login", "Register"])
             
             with auth_tab1:
                 st.subheader("Login")
