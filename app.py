@@ -396,9 +396,11 @@ else:
             st.title("🔐 Admin Panel")
             
             st.subheader("Grant Admin Access")
-            if os.path.exists("data/users.csv"):
-                users_df = pd.read_csv("data/users.csv")
-                non_admin_users = users_df[users_df['is_admin'] == False]['username'].tolist()
+            from utils.auth import get_all_users
+            
+            users_list = get_all_users()
+            if users_list:
+                non_admin_users = [u['username'] for u in users_list if not u['is_admin']]
                 
                 if non_admin_users:
                     user_to_promote = st.selectbox("Select user to make admin:", non_admin_users)
@@ -410,6 +412,7 @@ else:
                     st.info("All users are already admins!")
                 
                 st.subheader("All Users")
-                st.dataframe(users_df[['username', 'is_admin']], use_container_width=True)
+                users_df = pd.DataFrame(users_list)
+                st.dataframe(users_df, use_container_width=True)
             else:
                 st.info("No users yet.")
