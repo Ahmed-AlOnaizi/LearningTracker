@@ -5,6 +5,11 @@ import os
 import json
 from utils.auth import register_user, verify_login, user_exists, is_admin, make_admin
 
+# File paths (MUST be defined before session state)
+DATA_FILE = "data/progress.csv"
+USER_PROGRESS_FILE = "data/user_progress.csv"
+USERS_FILE = "data/users.csv"
+
 # Initialize session state
 if 'courses' not in st.session_state:
     st.session_state.courses = []
@@ -18,9 +23,6 @@ if 'edit_course_idx' not in st.session_state:
     st.session_state.edit_course_idx = None
     
 # Load data from CSV if it exists
-DATA_FILE = "data/progress.csv"
-USER_PROGRESS_FILE = "data/user_progress.csv"
-
 try:
     if os.path.exists(DATA_FILE) and os.path.getsize(DATA_FILE) > 0:
         df = pd.read_csv(DATA_FILE)
