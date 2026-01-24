@@ -35,39 +35,63 @@ if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("📚 Learning Tracker")
-        auth_tab1, auth_tab2 = st.tabs(["Login", "Register"])
         
-        with auth_tab1:
-            st.subheader("Login")
-            login_user = st.text_input("Username", key="login_user")
-            login_pass = st.text_input("Password", type="password", key="login_pass")
-            if st.button("Login", key="login_btn"):
-                if verify_login(login_user, login_pass):
-                    st.session_state.logged_in = True
-                    st.session_state.username = login_user
-                    st.session_state.is_admin = is_admin(login_user)
-                    st.rerun()
-                else:
-                    st.error("Invalid username or password")
+        # Check if this is first time setup
+        first_time_setup = not os.path.exists(USERS_FILE) or os.path.getsize(USERS_FILE) == 0
         
-        with auth_tab2:
-            st.subheader("Create Account")
-            reg_user = st.text_input("Choose Username", key="reg_user")
-            reg_pass = st.text_input("Choose Password", type="password", key="reg_pass")
-            reg_pass_confirm = st.text_input("Confirm Password", type="password", key="reg_pass_confirm")
-            if st.button("Register", key="reg_btn"):
-                if not reg_user or not reg_pass:
-                    st.error("Username and password required")
-                elif reg_pass != reg_pass_confirm:
-                    st.error("Passwords don't match")
-                elif user_exists(reg_user):
-                    st.error("Username already taken")
-                else:
-                    success, msg = register_user(reg_user, reg_pass)
-                    if success:
-                        st.success(msg)
+        if first_time_setup:
+            st.info("🔐 First time setup - Create your admin account")
+            with st.form("setup_admin_form"):
+                setup_user = st.text_input("Choose Admin Username")
+                setup_pass = st.text_input("Choose Admin Password", type="password")
+                setup_pass_confirm = st.text_input("Confirm Password", type="password")
+                
+                if st.form_submit_button("Create Admin Account"):
+                    if not setup_user or not setup_pass:
+                        st.error("Username and password required")
+                    elif setup_pass != setup_pass_confirm:
+                        st.error("Passwords don't match")
                     else:
-                        st.error(msg)
+                        success, msg = register_user(setup_user, setup_pass, is_admin=True)
+                        if success:
+                            st.success("✅ Admin account created! Now login.")
+                            st.rerun()
+                        else:
+                            st.error(msg)
+        else:
+            auth_tab1, auth_tab2 = st.tabs(["Login", "Register"])
+            
+            with auth_tab1:
+                st.subheader("Login")
+                login_user = st.text_input("Username", key="login_user")
+                login_pass = st.text_input("Password", type="password", key="login_pass")
+                if st.button("Login", key="login_btn"):
+                    if verify_login(login_user, login_pass):
+                        st.session_state.logged_in = True
+                        st.session_state.username = login_user
+                        st.session_state.is_admin = is_admin(login_user)
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password")
+            
+            with auth_tab2:
+                st.subheader("Create Account")
+                reg_user = st.text_input("Choose Username", key="reg_user")
+                reg_pass = st.text_input("Choose Password", type="password", key="reg_pass")
+                reg_pass_confirm = st.text_input("Confirm Password", type="password", key="reg_pass_confirm")
+                if st.button("Register", key="reg_btn"):
+                    if not reg_user or not reg_pass:
+                        st.error("Username and password required")
+                    elif reg_pass != reg_pass_confirm:
+                        st.error("Passwords don't match")
+                    elif user_exists(reg_user):
+                        st.error("Username already taken")
+                    else:
+                        success, msg = register_user(reg_user, reg_pass)
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.error(msg)
 else:
     # LOGGED IN - MAIN APP
     # Sidebar
