@@ -41,7 +41,13 @@ if not st.session_state.logged_in:
         # Check if this is first time setup
         first_time_setup = not os.path.exists(USERS_FILE) or os.path.getsize(USERS_FILE) == 0
         
-        if first_time_setup:
+        # Check if Supabase is configured
+        from utils.auth import USE_SUPABASE
+        
+        if not USE_SUPABASE:
+            st.error("❌ Database not configured")
+            st.info("Admin needs to set up Supabase credentials. See SUPABASE_SETUP.md for instructions.")
+        elif first_time_setup:
             st.info("🔐 First time setup - Create your admin account")
             with st.form("setup_admin_form"):
                 setup_user = st.text_input("Choose Admin Username")
@@ -56,10 +62,13 @@ if not st.session_state.logged_in:
                     else:
                         success, msg = register_user(setup_user, setup_pass, is_admin=True)
                         if success:
-                            st.success("✅ Admin account created! Now login.")
+                            st.success("✅ Admin account created! Logging in...")
+                            st.session_state.logged_in = True
+                            st.session_state.username = setup_user
+                            st.session_state.is_admin = True
                             st.rerun()
                         else:
-                            st.error(msg)
+                            st.error(f"❌ {msg}")
         else:
             auth_tab1, auth_tab2 = st.tabs(["Login", "Register"])
             
