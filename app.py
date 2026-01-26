@@ -591,33 +591,16 @@ else:
                                     new_notes = st.text_area(f"Notes for {course_name}", value=current_notes, height=80, key=f"notes_{selected_user}_{course_idx}")
                                     
                                     if st.button(f"💾 Save Progress for {course_name}", key=f"save_{selected_user}_{course_idx}"):
-                                        # Load or create progress file
-                                        if os.path.exists(USER_PROGRESS_FILE):
-                                            progress_df = pd.read_csv(USER_PROGRESS_FILE)
-                                        else:
-                                            progress_df = pd.DataFrame(columns=['username', 'Course', 'Progress %', 'Status', 'Notes', 'Last Updated'])
-                                        
-                                        # Update or create entry
-                                        mask = (progress_df['username'] == selected_user) & (progress_df['Course'] == course_name)
-                                        
-                                        if not progress_df[mask].empty:
-                                            progress_df.loc[mask, 'Progress %'] = new_progress
-                                            progress_df.loc[mask, 'Status'] = new_status
-                                            progress_df.loc[mask, 'Notes'] = new_notes
-                                            progress_df.loc[mask, 'Last Updated'] = str(datetime.now().date())
-                                        else:
-                                            new_entry = pd.DataFrame({
-                                                'username': [selected_user],
-                                                'Course': [course_name],
-                                                'Progress %': [new_progress],
-                                                'Status': [new_status],
-                                                'Notes': [new_notes],
-                                                'Last Updated': [str(datetime.now().date())]
-                                            })
-                                            progress_df = pd.concat([progress_df, new_entry], ignore_index=True)
-                                        
-                                        os.makedirs("data", exist_ok=True)
-                                        progress_df.to_csv(USER_PROGRESS_FILE, index=False)
+                                        # Use the same backend sync function as Track Progress
+                                        progress_dict = {
+                                            'username': selected_user,
+                                            'Course': course_name,
+                                            'Progress %': new_progress,
+                                            'Status': new_status,
+                                            'Notes': new_notes,
+                                            'Last Updated': str(datetime.now().date())
+                                        }
+                                        save_user_progress_to_backends(progress_dict)
                                         st.success(f"✅ Progress updated for {course_name}!")
                         elif not st.session_state.courses:
                             st.warning("No courses available yet.")
