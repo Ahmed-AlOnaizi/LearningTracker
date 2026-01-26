@@ -524,24 +524,53 @@ else:
         else:
             st.title("🔐 Admin Panel")
             
-            st.subheader("Grant Admin Access")
-            from utils.auth import get_all_users
+            # Tab for different admin features
+            admin_tab1, admin_tab2 = st.tabs(["Users", "Courses"])
             
-            users_list = get_all_users()
-            if users_list:
-                non_admin_users = [u['username'] for u in users_list if not u['is_admin']]
+            with admin_tab1:
+                st.subheader("Grant Admin Access")
+                from utils.auth import get_all_users
                 
-                if non_admin_users:
-                    user_to_promote = st.selectbox("Select user to make admin:", non_admin_users)
-                    if st.button("Grant Admin Access"):
-                        make_admin(user_to_promote)
-                        st.success(f"✅ {user_to_promote} is now an admin!")
-                        st.rerun()
+                users_list = get_all_users()
+                if users_list:
+                    non_admin_users = [u['username'] for u in users_list if not u['is_admin']]
+                    
+                    if non_admin_users:
+                        user_to_promote = st.selectbox("Select user to make admin:", non_admin_users)
+                        if st.button("Grant Admin Access"):
+                            make_admin(user_to_promote)
+                            st.success(f"✅ {user_to_promote} is now an admin!")
+                            st.rerun()
+                    else:
+                        st.info("All users are already admins!")
+                    
+                    st.subheader("All Users")
+                    users_df = pd.DataFrame(users_list)
+                    st.dataframe(users_df, use_container_width=True)
                 else:
-                    st.info("All users are already admins!")
+                    st.info("No users yet.")
+            
+            with admin_tab2:
+                st.subheader("Course Management")
                 
-                st.subheader("All Users")
-                users_df = pd.DataFrame(users_list)
-                st.dataframe(users_df, use_container_width=True)
-            else:
-                st.info("No users yet.")
+                # View all courses in Supabase
+                st.write("**Courses in Supabase Database:**")
+                from utils.auth import USE_SUPABASE
+                if USE_SUPABASE:
+                    all_supa_courses = get_all_courses()
+                    if all_supa_courses:
+                        st.json(all_supa_courses)
+                        st.write(f"Total in Supabase: {len(all_supa_courses)}")
+                    else:
+                        st.info("No courses in Supabase")
+                else:
+                    st.error("Supabase not connected")
+                
+                st.divider()
+                
+                # Reload courses from Supabase
+                st.write("**Reload Courses from Supabase:**")
+                if st.button("🔄 Reload All Courses from Supabase"):
+                    st.session_state.courses = load_courses()
+                    st.success("✅ Courses reloaded from Supabase!")
+                    st.rerun()
