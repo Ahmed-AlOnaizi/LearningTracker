@@ -216,6 +216,17 @@ else:
         st.title("📊 Dashboard")
         st.write(f"Welcome back, {st.session_state.username}!")
         
+        # DEBUG: Show what's being loaded
+        with st.expander("🔧 DEBUG: Course Loading Info"):
+            from utils.auth import USE_SUPABASE
+            st.write(f"**Supabase Connected:** {USE_SUPABASE}")
+            supa_courses = get_all_courses()
+            st.write(f"**Courses from Supabase:** {len(supa_courses)}")
+            if supa_courses:
+                st.json(supa_courses)
+            st.write(f"**Courses in Session State:** {len(st.session_state.courses)}")
+            st.json(st.session_state.courses)
+        
         if st.session_state.courses:
             # Load user progress
             user_progress_data = {}
