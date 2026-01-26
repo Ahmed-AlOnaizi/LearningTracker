@@ -7,6 +7,7 @@ import os
 import json
 from utils.auth import register_user, verify_login, user_exists, is_admin, make_admin
 from utils.courses_supabase import get_all_courses, add_course, update_course, delete_course
+from utils.progress_supabase import get_user_progress, get_all_progress, upsert_user_progress, delete_user_progress
 
 # File paths (MUST be defined before session state)
 DATA_FILE = "data/progress.csv"
@@ -45,6 +46,63 @@ if 'is_admin' not in st.session_state:
     st.session_state.is_admin = False
 if 'edit_course_idx' not in st.session_state:
     st.session_state.edit_course_idx = None
+
+# Helper to load user progress from Supabase or CSV
+def load_user_progress(username):
+    from utils.auth import USE_SUPABASE
+    if USE_SUPABASE:
+        progress_data = get_user_progress(username)
+        # Normalize keys
+        user_progress_data = {}
+        for row in progress_data:
+            user_progress_data[row['Course']] = {
+                'progress': row.get('Progress %', row.get('progress_percent', 0)),
+                'status': row.get('Status', row.get('status', 'In Progress')),
+                'notes': row.get('Notes', row.get('notes', ''))
+            }
+        return user_progress_data
+    else:
+        user_progress_data = {}
+        if os.path.exists(USER_PROGRESS_FILE):
+            progress_df = pd.read_csv(USER_PROGRESS_FILE)
+            user_data = progress_df[progress_df['username'] == username]
+            for _, row in user_data.iterrows():
+                user_progress_data[row['Course']] = {
+                    'progress': row['Progress %'],
+                    'status': row['Status'],
+                    'notes': row.get('Notes', '')
+                }
+        return user_progress_data
+
+# Helper to sync user progress to both CSV and Supabase
+def save_user_progress_to_backends(progress_dict):
+    from utils.auth import USE_SUPABASE
+    # Save to Supabase
+    if USE_SUPABASE:
+        upsert_user_progress(progress_dict)
+    # Save to CSV as backup
+    if os.path.exists(USER_PROGRESS_FILE):
+        progress_df = pd.read_csv(USER_PROGRESS_FILE)
+    else:
+        progress_df = pd.DataFrame(columns=['username', 'Course', 'Progress %', 'Status', 'Notes', 'Last Updated'])
+    mask = (progress_df['username'] == progress_dict['username']) & (progress_df['Course'] == progress_dict['Course'])
+    if not progress_df[mask].empty:
+        progress_df.loc[mask, 'Progress %'] = progress_dict['Progress %']
+        progress_df.loc[mask, 'Status'] = progress_dict['Status']
+        progress_df.loc[mask, 'Notes'] = progress_dict['Notes']
+        progress_df.loc[mask, 'Last Updated'] = progress_dict['Last Updated']
+    else:
+        new_entry = pd.DataFrame({
+            'username': [progress_dict['username']],
+            'Course': [progress_dict['Course']],
+            'Progress %': [progress_dict['Progress %']],
+            'Status': [progress_dict['Status']],
+            'Notes': [progress_dict['Notes']],
+            'Last Updated': [progress_dict['Last Updated']]
+        })
+        progress_df = pd.concat([progress_df, new_entry], ignore_index=True)
+    os.makedirs("data", exist_ok=True)
+    progress_df.to_csv(USER_PROGRESS_FILE, index=False)
     
 
 # Helper to sync to both CSV and Supabase
@@ -203,16 +261,8 @@ else:
         st.write(f"Welcome back, {st.session_state.username}!")
         
         if st.session_state.courses:
-            # Load user progress
-            user_progress_data = {}
-            if os.path.exists(USER_PROGRESS_FILE):
-                progress_df = pd.read_csv(USER_PROGRESS_FILE)
-                user_data = progress_df[progress_df['username'] == st.session_state.username]
-                for _, row in user_data.iterrows():
-                    user_progress_data[row['Course']] = {
-                        'progress': row['Progress %'],
-                        'status': row['Status']
-                    }
+            # Load user progress from Supabase or CSV
+            user_progress_data = load_user_progress(st.session_state.username)
             
             # Calculate team stats
             if os.path.exists(USER_PROGRESS_FILE):
@@ -394,80 +444,52 @@ else:
                         progress_df.loc[mask, 'Notes'] = notes
                         progress_df.loc[mask, 'Last Updated'] = str(datetime.now().date())
                     else:
-                        new_entry = pd.DataFrame({
-                            'username': [st.session_state.username],
-                            'Course': [selected_course],
-                            'Progress %': [progress],
-                            'Status': [status],
-                            'Notes': [notes],
-                            'Last Updated': [str(datetime.now().date())]
-                        })
-                        progress_df = pd.concat([progress_df, new_entry], ignore_index=True)
-                    
-                    # Save
-                    os.makedirs("data", exist_ok=True)
-                    progress_df.to_csv(USER_PROGRESS_FILE, index=False)
-                    st.success("✅ Your progress updated!")
-                    # --- Audit log ---
-                    log_entry = {
-                        'timestamp': datetime.now().isoformat(),
-                        'username': st.session_state.username,
-                        'course': selected_course,
-                        'progress': progress,
-                        'status': status,
-                        'note': notes
-                    }
-                    log_path = os.path.join('data', 'audit_log.csv')
-                    file_exists = os.path.isfile(log_path)
-                    with open(log_path, 'a', newline='', encoding='utf-8') as logfile:
-                        writer = csv.DictWriter(logfile, fieldnames=log_entry.keys())
-                        if not file_exists:
-                            writer.writeheader()
-                        writer.writerow(log_entry)
-        else:
-            st.info("No courses available yet.")
-
-    elif page == "View Reports":
-        st.title("📊 View Reports")
-        if st.session_state.courses:
-            st.subheader("Team Progress by Course")
-            
-            # Load user progress data
-            if os.path.exists(USER_PROGRESS_FILE):
-                progress_df = pd.read_csv(USER_PROGRESS_FILE)
-                
-                # Create summary by course
-                course_summary = []
-                for course in st.session_state.courses:
-                    course_name = course['Course']
-                    course_data = progress_df[progress_df['Course'] == course_name]
-                    
-                    if not course_data.empty:
-                        avg_progress = course_data['Progress %'].mean()
-                        completed_count = len(course_data[course_data['Status'] == 'Completed'])
-                        total_users = len(course_data)
-                    else:
-                        avg_progress = 0
-                        completed_count = 0
-                        total_users = 0
-                    
-                    course_summary.append({
-                        'Course': course_name,
-                        'Team Avg Progress': f"{avg_progress:.1f}%",
-                        'Completed': f"{completed_count}/{total_users}",
-                        'Total Users': total_users
-                    })
-                
-                summary_df = pd.DataFrame(course_summary)
-                st.dataframe(summary_df, use_container_width=True)
-                
-                st.subheader("Individual Progress")
-                selected_course = st.selectbox("View progress for:", [c['Course'] for c in st.session_state.courses])
-                
-                course_progress = progress_df[progress_df['Course'] == selected_course][['username', 'Progress %', 'Status', 'Last Updated']]
-                if not course_progress.empty:
-                    st.dataframe(course_progress, use_container_width=True)
-                else:
+                        if st.session_state.courses:
+                            course_names = [c["Course"] for c in st.session_state.courses]
+                            selected_course = st.selectbox("Select Course", course_names)
+                            # Find the selected course
+                            course_idx = next((i for i, c in enumerate(st.session_state.courses) if c["Course"] == selected_course), None)
+                            if course_idx is not None:
+                                # Load user's progress for this course from Supabase or CSV
+                                user_progress_data = load_user_progress(st.session_state.username)
+                                user_progress = user_progress_data.get(selected_course, None)
+                                default_progress = int(user_progress['progress']) if user_progress else 0
+                                default_status = user_progress['status'] if user_progress else "In Progress"
+                                default_notes = user_progress['notes'] if user_progress else ""
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    progress = st.slider("Your Progress (%)", 0, 100, default_progress)
+                                with col2:
+                                    status = st.selectbox("Status", ["In Progress", "Completed", "On Hold"], 
+                                                         index=["In Progress", "Completed", "On Hold"].index(default_status))
+                                notes = st.text_area("Your Notes", value=default_notes, height=100)
+                                if st.button("Update My Progress"):
+                                    progress_dict = {
+                                        'username': st.session_state.username,
+                                        'Course': selected_course,
+                                        'Progress %': progress,
+                                        'Status': status,
+                                        'Notes': notes,
+                                        'Last Updated': str(datetime.now().date())
+                                    }
+                                    save_user_progress_to_backends(progress_dict)
+                                    st.success("✅ Your progress updated!")
+                                    # --- Audit log ---
+                                    log_entry = {
+                                        'timestamp': datetime.now().isoformat(),
+                                        'username': st.session_state.username,
+                                        'course': selected_course,
+                                        'progress': progress,
+                                        'status': status,
+                                        'note': notes
+                                    }
+                                    log_path = os.path.join('data', 'audit_log.csv')
+                                    file_exists = os.path.isfile(log_path)
+                                    with open(log_path, 'a', newline='', encoding='utf-8') as logfile:
+                                        writer = csv.DictWriter(logfile, fieldnames=log_entry.keys())
+                                        if not file_exists:
+                                            writer.writeheader()
+                                        writer.writerow(log_entry)
                     st.info("No progress tracked yet for this course.")
             else:
                 st.info("No progress tracked yet.")
