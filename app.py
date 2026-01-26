@@ -1,18 +1,52 @@
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import csv
 import os
 import json
 from utils.auth import register_user, verify_login, user_exists, is_admin, make_admin
+from utils.courses_supabase import get_all_courses, add_course, update_course, delete_course
 
 # File paths (MUST be defined before session state)
 DATA_FILE = "data/progress.csv"
 USER_PROGRESS_FILE = "data/user_progress.csv"
 USERS_FILE = "data/users.csv"
 
-# Initialize session state
+def load_courses():
+    # Try Supabase first, then fallback to CSV
+    from utils.auth import USE_SUPABASE
+    courses = []
+    if USE_SUPABASE:
+        supa_courses = get_all_courses()
+        # Normalize keys to match CSV/legacy
+        for c in supa_courses:
+            courses.append({
+                "Course": c.get("course", c.get("Course", "")),
+                "Description": c.get("description", c.get("Description", "")),
+                "Start Date": c.get("start_date", c.get("Start Date", "")),
+                "Target Date": c.get("target_date", c.get("Target Date", "")),
+                "Instructor": c.get("instructor", c.get("Instructor", "")),
+                "Status": c.get("status", c.get("Status", "")),
+                "Progress %": c.get("progress_percent", c.get("Progress %", 0)),
+                "Added by": c.get("added_by", c.get("Added by", "")),
+                "Last Updated": c.get("last_updated", c.get("Last Updated", "")),
+                "id": c.get("id", None)
+            })
+    # Always also load from CSV for backup/merge
+    if os.path.exists(DATA_FILE):
+        try:
+            df = pd.read_csv(DATA_FILE)
+            for _, row in df.iterrows():
+                course = row.to_dict()
+                if course not in courses:
+                    courses.append(course)
+        except Exception:
+            pass
+    return courses
+
 if 'courses' not in st.session_state:
-    st.session_state.courses = []
+    st.session_state.courses = load_courses()
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'username' not in st.session_state:
@@ -22,15 +56,45 @@ if 'is_admin' not in st.session_state:
 if 'edit_course_idx' not in st.session_state:
     st.session_state.edit_course_idx = None
     
-# Load data from CSV if it exists
-try:
-    if os.path.exists(DATA_FILE) and os.path.getsize(DATA_FILE) > 0:
-        df = pd.read_csv(DATA_FILE)
-        if not df.empty:
-            st.session_state.courses = df.to_dict('records')
-except pd.errors.EmptyDataError:
-    # File is empty, continue with empty courses list
-    pass
+
+# Helper to sync to both CSV and Supabase
+def save_course_to_backends(course, supabase_id=None):
+    from utils.auth import USE_SUPABASE
+    # Save to CSV
+    df = pd.DataFrame(st.session_state.courses)
+    os.makedirs("data", exist_ok=True)
+    df.to_csv(DATA_FILE, index=False)
+    # Save to Supabase
+    if USE_SUPABASE:
+        # Prepare dict for Supabase
+        supa_dict = {
+            "course": course["Course"],
+            "description": course["Description"],
+            "start_date": course["Start Date"],
+            "target_date": course["Target Date"],
+            "instructor": course["Instructor"],
+            "status": course["Status"],
+            "progress_percent": int(course["Progress %"]),
+            "added_by": course["Added by"],
+            "last_updated": course["Last Updated"]
+        }
+        if supabase_id:
+            update_course(supabase_id, supa_dict)
+        else:
+            add_course(supa_dict)
+
+def delete_course_from_backends(idx):
+    from utils.auth import USE_SUPABASE
+    course = st.session_state.courses[idx]
+    supabase_id = course.get("id")
+    # Remove from session
+    st.session_state.courses.pop(idx)
+    # Save to CSV
+    df = pd.DataFrame(st.session_state.courses)
+    df.to_csv(DATA_FILE, index=False)
+    # Remove from Supabase
+    if USE_SUPABASE and supabase_id:
+        delete_course(supabase_id)
 
 # LOGIN SYSTEM
 if not st.session_state.logged_in:
@@ -121,8 +185,10 @@ else:
     if st.session_state.is_admin:
         nav_options.insert(1, "Add Course")
         nav_options.append("Admin Panel")
+        nav_options.append("Audit Log")
     
     page = st.sidebar.radio("Navigation", nav_options)
+    st.write(f"DEBUG: selected page = {page}")
     
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
@@ -131,7 +197,22 @@ else:
         st.rerun()
 
     # Main content
-    if page == "Dashboard":
+    if page == "Audit Log":
+        st.write(f"DEBUG: selected page = {page}")
+        st.write(f"DEBUG: is_admin = {st.session_state.get('is_admin')}")
+        if not st.session_state.is_admin:
+            st.error("❌ Access denied!")
+        else:
+            st.title("📝 Audit Log: User Progress Updates")
+            log_path = os.path.join('data', 'audit_log.csv')
+            if os.path.exists(log_path):
+                log_df = pd.read_csv(log_path)
+                log_df = log_df.sort_values('timestamp', ascending=False)
+                st.write("DEBUG: log_df", log_df)
+                st.dataframe(log_df, use_container_width=True)
+            else:
+                st.info('No audit log entries yet.')
+    elif page == "Dashboard":
         st.title("📊 Dashboard")
         st.write(f"Welcome back, {st.session_state.username}!")
         
@@ -197,13 +278,10 @@ else:
                     if st.session_state.is_admin:
                         if st.button("✏️ Edit", key=f"edit_{idx}"):
                             st.session_state.edit_course_idx = idx
-                
                 with col4:
                     if st.session_state.is_admin:
                         if st.button("🗑️ Delete", key=f"delete_{idx}"):
-                            st.session_state.courses.pop(idx)
-                            df = pd.DataFrame(st.session_state.courses)
-                            df.to_csv(DATA_FILE, index=False)
+                            delete_course_from_backends(idx)
                             st.success("Course deleted!")
                             st.rerun()
             
@@ -228,10 +306,8 @@ else:
                             st.session_state.courses[edit_idx]['Description'] = new_desc
                             st.session_state.courses[edit_idx]['Target Date'] = str(new_target)
                             st.session_state.courses[edit_idx]['Instructor'] = new_instructor
-                            
-                            df = pd.DataFrame(st.session_state.courses)
-                            df.to_csv(DATA_FILE, index=False)
-                            
+                            # Save to both backends
+                            save_course_to_backends(st.session_state.courses[edit_idx], st.session_state.courses[edit_idx].get("id"))
                             st.session_state.edit_course_idx = None
                             st.success("✅ Course updated!")
                             st.rerun()
@@ -269,12 +345,8 @@ else:
                             "Last Updated": str(datetime.now().date())
                         }
                         st.session_state.courses.append(new_course)
-                        
-                        # Save to CSV
-                        df = pd.DataFrame(st.session_state.courses)
-                        os.makedirs("data", exist_ok=True)
-                        df.to_csv(DATA_FILE, index=False)
-                        
+                        # Save to both backends
+                        save_course_to_backends(new_course)
                         st.success(f"✅ Course '{course_name}' added successfully!")
                     else:
                         st.error("Please enter a course name")
@@ -350,6 +422,37 @@ else:
                     os.makedirs("data", exist_ok=True)
                     progress_df.to_csv(USER_PROGRESS_FILE, index=False)
                     st.success("✅ Your progress updated!")
+                    # --- Audit log ---
+                    log_entry = {
+                        'timestamp': datetime.now().isoformat(),
+                        'username': st.session_state.username,
+                        'course': selected_course,
+                        'progress': progress,
+                        'status': status,
+                        'note': notes
+                    }
+                    log_path = os.path.join('data', 'audit_log.csv')
+                    file_exists = os.path.isfile(log_path)
+                    with open(log_path, 'a', newline='', encoding='utf-8') as logfile:
+                        writer = csv.DictWriter(logfile, fieldnames=log_entry.keys())
+                        if not file_exists:
+                            writer.writeheader()
+                        writer.writerow(log_entry)
+            elif page == "Audit Log":
+                st.write(f"DEBUG: page = {page}")
+                st.write(f"DEBUG: is_admin = {st.session_state.get('is_admin')}")
+                if not st.session_state.is_admin:
+                    st.error("❌ Access denied!")
+                else:
+                    st.title("📝 Audit Log: User Progress Updates")
+                    log_path = os.path.join('data', 'audit_log.csv')
+                    if os.path.exists(log_path):
+                        log_df = pd.read_csv(log_path)
+                        log_df = log_df.sort_values('timestamp', ascending=False)
+                        st.write("DEBUG: log_df", log_df)
+                        st.dataframe(log_df, use_container_width=True)
+                    else:
+                        st.info('No audit log entries yet.')
         else:
             st.info("No courses available yet.")
 
