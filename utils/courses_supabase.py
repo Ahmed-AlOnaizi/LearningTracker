@@ -1,24 +1,10 @@
 
 import streamlit as st
-from supabase import create_client, Client
-
-SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
-
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        USE_SUPABASE = True
-    except Exception:
-        USE_SUPABASE = False
-        supabase = None
-else:
-    USE_SUPABASE = False
-    supabase = None
+from utils.auth import supabase, USE_SUPABASE
 
 def get_all_courses():
     if not USE_SUPABASE:
-        st.error("Supabase not initialized in courses_supabase.py")
+        st.error("Supabase not initialized")
         return []
     try:
         if supabase is None:
