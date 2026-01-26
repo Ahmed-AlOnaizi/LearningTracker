@@ -64,6 +64,7 @@ def save_course_to_backends(course, supabase_id=None):
     df = pd.DataFrame(st.session_state.courses)
     os.makedirs("data", exist_ok=True)
     df.to_csv(DATA_FILE, index=False)
+    st.write(f"DEBUG - Saved to CSV: {course}")
     # Save to Supabase
     if USE_SUPABASE:
         # Prepare dict for Supabase
@@ -78,10 +79,13 @@ def save_course_to_backends(course, supabase_id=None):
             "added_by": course["Added by"],
             "last_updated": course["Last Updated"]
         }
+        st.write(f"DEBUG - About to save to Supabase: {supa_dict}")
         if supabase_id:
-            update_course(supabase_id, supa_dict)
+            success, msg = update_course(supabase_id, supa_dict)
+            st.write(f"DEBUG - Update result: {success}, {msg}")
         else:
-            add_course(supa_dict)
+            success, msg = add_course(supa_dict)
+            st.write(f"DEBUG - Add result: {success}, {msg}")
 
 def delete_course_from_backends(idx):
     from utils.auth import USE_SUPABASE

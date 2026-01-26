@@ -18,21 +18,35 @@ else:
 
 def get_all_courses():
     if not USE_SUPABASE:
+        st.error("Supabase not initialized in courses_supabase.py")
         return []
     try:
+        if supabase is None:
+            st.error("Supabase client is None")
+            return []
         response = supabase.table("courses").select("*").execute()
+        st.write(f"DEBUG - Raw Supabase response: {response}")
         return response.data
     except Exception as e:
-        st.error(f"Database error: {e}")
+        st.error(f"Database error in get_all_courses: {type(e).__name__}: {e}")
+        import traceback
+        st.error(traceback.format_exc())
         return []
 
 def add_course(course_dict):
     if not USE_SUPABASE:
         return False, "Database not configured"
     try:
-        supabase.table("courses").insert(course_dict).execute()
+        if supabase is None:
+            return False, "Supabase client is None"
+        st.write(f"DEBUG - Adding course to Supabase: {course_dict}")
+        result = supabase.table("courses").insert(course_dict).execute()
+        st.write(f"DEBUG - Insert result: {result}")
         return True, "Course added successfully"
     except Exception as e:
+        st.error(f"Failed to add course: {type(e).__name__}: {e}")
+        import traceback
+        st.error(traceback.format_exc())
         return False, f"Failed to add course: {e}"
 
 def update_course(course_id, update_dict):
