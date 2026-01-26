@@ -404,103 +404,52 @@ else:
                                                (progress_df['Course'] == selected_course)]
                     if not user_progress.empty:
                         user_progress = user_progress.iloc[0].to_dict()
+                    st.title("📈 Track Your Progress")
+                    if st.session_state.courses:
+                        course_names = [c["Course"] for c in st.session_state.courses]
+                        selected_course = st.selectbox("Select Course", course_names, key="track_progress_select_course")
+                        # Load user's progress for this course from Supabase or CSV
+                        user_progress_data = load_user_progress(st.session_state.username)
+                        user_progress = user_progress_data.get(selected_course, None)
+                        default_progress = int(user_progress['progress']) if user_progress else 0
+                        default_status = user_progress['status'] if user_progress else "In Progress"
+                        default_notes = user_progress['notes'] if user_progress else ""
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            progress = st.slider("Your Progress (%)", 0, 100, default_progress, key=f"slider_{selected_course}")
+                        with col2:
+                            status = st.selectbox("Status", ["In Progress", "Completed", "On Hold"], 
+                                                 index=["In Progress", "Completed", "On Hold"].index(default_status), key=f"status_{selected_course}")
+                        notes = st.text_area("Your Notes", value=default_notes, height=100, key=f"notes_{selected_course}")
+                        if st.button("Update My Progress", key=f"update_btn_{selected_course}"):
+                            progress_dict = {
+                                'username': st.session_state.username,
+                                'Course': selected_course,
+                                'Progress %': progress,
+                                'Status': status,
+                                'Notes': notes,
+                                'Last Updated': str(datetime.now().date())
+                            }
+                            save_user_progress_to_backends(progress_dict)
+                            st.success("✅ Your progress updated!")
+                            # --- Audit log ---
+                            log_entry = {
+                                'timestamp': datetime.now().isoformat(),
+                                'username': st.session_state.username,
+                                'course': selected_course,
+                                'progress': progress,
+                                'status': status,
+                                'note': notes
+                            }
+                            log_path = os.path.join('data', 'audit_log.csv')
+                            file_exists = os.path.isfile(log_path)
+                            with open(log_path, 'a', newline='', encoding='utf-8') as logfile:
+                                writer = csv.DictWriter(logfile, fieldnames=log_entry.keys())
+                                if not file_exists:
+                                    writer.writeheader()
+                                writer.writerow(log_entry)
                     else:
-                        user_progress = None
-                else:
-                    user_progress = None
-                
-                # Get defaults from user progress or course
-                default_progress = int(user_progress.get("Progress %", 0)) if user_progress else 0
-                default_status = user_progress.get("Status", "In Progress") if user_progress else "In Progress"
-                default_notes = user_progress.get("Notes", "") if user_progress else ""
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    progress = st.slider("Your Progress (%)", 0, 100, default_progress)
-                
-                with col2:
-                    status = st.selectbox("Status", ["In Progress", "Completed", "On Hold"], 
-                                         index=["In Progress", "Completed", "On Hold"].index(default_status))
-                
-                notes = st.text_area("Your Notes", value=default_notes, height=100)
-                
-                if st.button("Update My Progress"):
-                    # Load existing user progress
-                    if os.path.exists(USER_PROGRESS_FILE):
-                        progress_df = pd.read_csv(USER_PROGRESS_FILE)
-                    else:
-                        progress_df = pd.DataFrame(columns=['username', 'Course', 'Progress %', 'Status', 'Notes', 'Last Updated'])
-                    
-                    # Update or create progress entry
-                    if len(progress_df) > 0:
-                        mask = (progress_df['username'] == st.session_state.username) & (progress_df['Course'] == selected_course)
-                    else:
-                        mask = pd.Series([False] * len(progress_df))
-                    
-                    if not progress_df[mask].empty:
-                        progress_df.loc[mask, 'Progress %'] = progress
-                        progress_df.loc[mask, 'Status'] = status
-                        progress_df.loc[mask, 'Notes'] = notes
-                        progress_df.loc[mask, 'Last Updated'] = str(datetime.now().date())
-                    else:
-                        if st.session_state.courses:
-                            course_names = [c["Course"] for c in st.session_state.courses]
-                            selected_course = st.selectbox("Select Course", course_names)
-                            # Find the selected course
-                            course_idx = next((i for i, c in enumerate(st.session_state.courses) if c["Course"] == selected_course), None)
-                            if course_idx is not None:
-                                # Load user's progress for this course from Supabase or CSV
-                                user_progress_data = load_user_progress(st.session_state.username)
-                                user_progress = user_progress_data.get(selected_course, None)
-                                default_progress = int(user_progress['progress']) if user_progress else 0
-                                default_status = user_progress['status'] if user_progress else "In Progress"
-                                default_notes = user_progress['notes'] if user_progress else ""
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    progress = st.slider("Your Progress (%)", 0, 100, default_progress)
-                                with col2:
-                                    status = st.selectbox("Status", ["In Progress", "Completed", "On Hold"], 
-                                                         index=["In Progress", "Completed", "On Hold"].index(default_status))
-                                notes = st.text_area("Your Notes", value=default_notes, height=100)
-                                if st.button("Update My Progress"):
-                                    progress_dict = {
-                                        'username': st.session_state.username,
-                                        'Course': selected_course,
-                                        'Progress %': progress,
-                                        'Status': status,
-                                        'Notes': notes,
-                                        'Last Updated': str(datetime.now().date())
-                                    }
-                                    save_user_progress_to_backends(progress_dict)
-                                    st.success("✅ Your progress updated!")
-                                    # --- Audit log ---
-                                    log_entry = {
-                                        'timestamp': datetime.now().isoformat(),
-                                        'username': st.session_state.username,
-                                        'course': selected_course,
-                                        'progress': progress,
-                                        'status': status,
-                                        'note': notes
-                                    }
-                                    log_path = os.path.join('data', 'audit_log.csv')
-                                    file_exists = os.path.isfile(log_path)
-                                    with open(log_path, 'a', newline='', encoding='utf-8') as logfile:
-                                        writer = csv.DictWriter(logfile, fieldnames=log_entry.keys())
-                                        if not file_exists:
-                                            writer.writeheader()
-                                        writer.writerow(log_entry)
-                    st.info("No progress tracked yet for this course.")
-            else:
-                st.info("No progress tracked yet.")
-        else:
-            st.info("No courses available yet.")
-
-    elif page == "Admin Panel":
-        if not st.session_state.is_admin:
-            st.error("❌ Access denied!")
-        else:
-            st.title("🔐 Admin Panel")
+                        st.info("No courses available yet.")
             
             # Tab for different admin features
             admin_tab1, admin_tab2 = st.tabs(["Users", "Courses"])
