@@ -64,7 +64,6 @@ def save_course_to_backends(course, supabase_id=None):
     df = pd.DataFrame(st.session_state.courses)
     os.makedirs("data", exist_ok=True)
     df.to_csv(DATA_FILE, index=False)
-    st.write(f"DEBUG - Saved to CSV: {course}")
     # Save to Supabase
     if USE_SUPABASE:
         # Prepare dict for Supabase
@@ -79,13 +78,10 @@ def save_course_to_backends(course, supabase_id=None):
             "added_by": course["Added by"],
             "last_updated": course["Last Updated"]
         }
-        st.write(f"DEBUG - About to save to Supabase: {supa_dict}")
         if supabase_id:
-            success, msg = update_course(supabase_id, supa_dict)
-            st.write(f"DEBUG - Update result: {success}, {msg}")
+            update_course(supabase_id, supa_dict)
         else:
-            success, msg = add_course(supa_dict)
-            st.write(f"DEBUG - Add result: {success}, {msg}")
+            add_course(supa_dict)
 
 def delete_course_from_backends(idx):
     from utils.auth import USE_SUPABASE
@@ -192,7 +188,6 @@ else:
         nav_options.append("Audit Log")
     
     page = st.sidebar.radio("Navigation", nav_options)
-    st.write(f"DEBUG: selected page = {page}")
     
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
@@ -202,8 +197,6 @@ else:
 
     # Main content
     if page == "Audit Log":
-        st.write(f"DEBUG: selected page = {page}")
-        st.write(f"DEBUG: is_admin = {st.session_state.get('is_admin')}")
         if not st.session_state.is_admin:
             st.error("❌ Access denied!")
         else:
@@ -219,17 +212,6 @@ else:
     elif page == "Dashboard":
         st.title("📊 Dashboard")
         st.write(f"Welcome back, {st.session_state.username}!")
-        
-        # DEBUG: Show what's being loaded
-        with st.expander("🔧 DEBUG: Course Loading Info"):
-            from utils.auth import USE_SUPABASE
-            st.write(f"**Supabase Connected:** {USE_SUPABASE}")
-            supa_courses = get_all_courses()
-            st.write(f"**Courses from Supabase:** {len(supa_courses)}")
-            if supa_courses:
-                st.json(supa_courses)
-            st.write(f"**Courses in Session State:** {len(st.session_state.courses)}")
-            st.json(st.session_state.courses)
         
         if st.session_state.courses:
             # Load user progress
@@ -553,24 +535,108 @@ else:
             with admin_tab2:
                 st.subheader("Course Management")
                 
-                # View all courses in Supabase
-                st.write("**Courses in Supabase Database:**")
-                from utils.auth import USE_SUPABASE
-                if USE_SUPABASE:
-                    all_supa_courses = get_all_courses()
-                    if all_supa_courses:
-                        st.json(all_supa_courses)
-                        st.write(f"Total in Supabase: {len(all_supa_courses)}")
+                course_sub_tab1, course_sub_tab2 = st.tabs(["View/Reload", "Edit User Progress"])
+                
+                with course_sub_tab1:
+                    # View all courses in Supabase
+                    st.write("**Courses in Supabase Database:**")
+                    from utils.auth import USE_SUPABASE
+                    if USE_SUPABASE:
+                        all_supa_courses = get_all_courses()
+                        if all_supa_courses:
+                            st.json(all_supa_courses)
+                            st.write(f"Total in Supabase: {len(all_supa_courses)}")
+                        else:
+                            st.info("No courses in Supabase")
                     else:
-                        st.info("No courses in Supabase")
-                else:
-                    st.error("Supabase not connected")
+                        st.error("Supabase not connected")
+                    
+                    st.divider()
+                    
+                    # Reload courses from Supabase
+                    st.write("**Reload Courses from Supabase:**")
+                    if st.button("🔄 Reload All Courses from Supabase"):
+                        st.session_state.courses = load_courses()
+                        st.success("✅ Courses reloaded from Supabase!")
+                        st.rerun()
                 
-                st.divider()
-                
-                # Reload courses from Supabase
-                st.write("**Reload Courses from Supabase:**")
-                if st.button("🔄 Reload All Courses from Supabase"):
-                    st.session_state.courses = load_courses()
-                    st.success("✅ Courses reloaded from Supabase!")
-                    st.rerun()
+                with course_sub_tab2:
+                    st.write("**Edit User Progress in Courses**")
+                    from utils.auth import get_all_users
+                    
+                    users_list = get_all_users()
+                    if users_list:
+                        usernames = [u['username'] for u in users_list]
+                        selected_user = st.selectbox("Select User", usernames, key="progress_user_select")
+                        
+                        if selected_user and st.session_state.courses:
+                            st.write(f"**Editing progress for: {selected_user}**")
+                            
+                            # Load user progress
+                            if os.path.exists(USER_PROGRESS_FILE):
+                                progress_df = pd.read_csv(USER_PROGRESS_FILE)
+                                user_progress_df = progress_df[progress_df['username'] == selected_user]
+                            else:
+                                user_progress_df = pd.DataFrame()
+                            
+                            # Display courses for editing
+                            for course in st.session_state.courses:
+                                course_name = course['Course']
+                                course_prog = user_progress_df[user_progress_df['Course'] == course_name]
+                                
+                                # Get current values
+                                if not course_prog.empty:
+                                    current_progress = int(course_prog.iloc[0]['Progress %'])
+                                    current_status = course_prog.iloc[0]['Status']
+                                    current_notes = course_prog.iloc[0]['Notes']
+                                else:
+                                    current_progress = 0
+                                    current_status = "In Progress"
+                                    current_notes = ""
+                                
+                                with st.expander(f"📚 {course_name}"):
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        new_progress = st.slider(f"Progress for {course_name}", 0, 100, current_progress, key=f"prog_{selected_user}_{course_name}")
+                                    
+                                    with col2:
+                                        new_status = st.selectbox(f"Status for {course_name}", ["In Progress", "Completed", "On Hold"], 
+                                                                index=["In Progress", "Completed", "On Hold"].index(current_status),
+                                                                key=f"status_{selected_user}_{course_name}")
+                                    
+                                    new_notes = st.text_area(f"Notes for {course_name}", value=current_notes, height=80, key=f"notes_{selected_user}_{course_name}")
+                                    
+                                    if st.button(f"💾 Save Progress for {course_name}", key=f"save_{selected_user}_{course_name}"):
+                                        # Load or create progress file
+                                        if os.path.exists(USER_PROGRESS_FILE):
+                                            progress_df = pd.read_csv(USER_PROGRESS_FILE)
+                                        else:
+                                            progress_df = pd.DataFrame(columns=['username', 'Course', 'Progress %', 'Status', 'Notes', 'Last Updated'])
+                                        
+                                        # Update or create entry
+                                        mask = (progress_df['username'] == selected_user) & (progress_df['Course'] == course_name)
+                                        
+                                        if not progress_df[mask].empty:
+                                            progress_df.loc[mask, 'Progress %'] = new_progress
+                                            progress_df.loc[mask, 'Status'] = new_status
+                                            progress_df.loc[mask, 'Notes'] = new_notes
+                                            progress_df.loc[mask, 'Last Updated'] = str(datetime.now().date())
+                                        else:
+                                            new_entry = pd.DataFrame({
+                                                'username': [selected_user],
+                                                'Course': [course_name],
+                                                'Progress %': [new_progress],
+                                                'Status': [new_status],
+                                                'Notes': [new_notes],
+                                                'Last Updated': [str(datetime.now().date())]
+                                            })
+                                            progress_df = pd.concat([progress_df, new_entry], ignore_index=True)
+                                        
+                                        os.makedirs("data", exist_ok=True)
+                                        progress_df.to_csv(USER_PROGRESS_FILE, index=False)
+                                        st.success(f"✅ Progress updated for {course_name}!")
+                        elif not st.session_state.courses:
+                            st.warning("No courses available yet.")
+                    else:
+                        st.info("No users found.")
