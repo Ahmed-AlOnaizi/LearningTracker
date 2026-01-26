@@ -11,7 +11,7 @@ def get_all_courses():
             st.error("Supabase client is None")
             return []
         response = supabase.table("courses").select("*").execute()
-        st.write(f"DEBUG - Raw Supabase response: {response}")
+        # st.write(f"DEBUG - Raw Supabase response: {response}")  # Removed debug output
         return response.data
     except Exception as e:
         st.error(f"Database error in get_all_courses: {type(e).__name__}: {e}")
