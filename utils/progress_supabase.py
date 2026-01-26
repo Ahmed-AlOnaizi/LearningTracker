@@ -39,7 +39,8 @@ def get_all_progress():
                 'Course': row.get('course', ''),
                 'Progress %': row.get('progress_percent', 0),
                 'Status': row.get('status', 'In Progress'),
-                'Notes': row.get('notes', '')
+                'Notes': row.get('notes', ''),
+                'Last Updated': row.get('updated_at', '')
             })
         return normalized_data
     except Exception as e:
