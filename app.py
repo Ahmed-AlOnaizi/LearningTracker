@@ -424,21 +424,6 @@ else:
                         if not file_exists:
                             writer.writeheader()
                         writer.writerow(log_entry)
-            elif page == "Audit Log":
-                st.write(f"DEBUG: page = {page}")
-                st.write(f"DEBUG: is_admin = {st.session_state.get('is_admin')}")
-                if not st.session_state.is_admin:
-                    st.error("❌ Access denied!")
-                else:
-                    st.title("📝 Audit Log: User Progress Updates")
-                    log_path = os.path.join('data', 'audit_log.csv')
-                    if os.path.exists(log_path):
-                        log_df = pd.read_csv(log_path)
-                        log_df = log_df.sort_values('timestamp', ascending=False)
-                        st.write("DEBUG: log_df", log_df)
-                        st.dataframe(log_df, use_container_width=True)
-                    else:
-                        st.info('No audit log entries yet.')
         else:
             st.info("No courses available yet.")
 
@@ -569,7 +554,7 @@ else:
                                 user_progress_df = pd.DataFrame(columns=['username', 'Course', 'Progress %', 'Status', 'Notes', 'Last Updated'])
                             
                             # Display courses for editing
-                            for course in st.session_state.courses:
+                            for course_idx, course in enumerate(st.session_state.courses):
                                 course_name = course['Course']
                                 course_prog = user_progress_df[user_progress_df['Course'] == course_name]
                                 
@@ -587,16 +572,16 @@ else:
                                     col1, col2 = st.columns(2)
                                     
                                     with col1:
-                                        new_progress = st.slider(f"Progress for {course_name}", 0, 100, current_progress, key=f"prog_{selected_user}_{course_name}")
+                                        new_progress = st.slider(f"Progress for {course_name}", 0, 100, current_progress, key=f"prog_{selected_user}_{course_idx}")
                                     
                                     with col2:
                                         new_status = st.selectbox(f"Status for {course_name}", ["In Progress", "Completed", "On Hold"], 
                                                                 index=["In Progress", "Completed", "On Hold"].index(current_status),
-                                                                key=f"status_{selected_user}_{course_name}")
+                                                                key=f"status_{selected_user}_{course_idx}")
                                     
-                                    new_notes = st.text_area(f"Notes for {course_name}", value=current_notes, height=80, key=f"notes_{selected_user}_{course_name}")
+                                    new_notes = st.text_area(f"Notes for {course_name}", value=current_notes, height=80, key=f"notes_{selected_user}_{course_idx}")
                                     
-                                    if st.button(f"💾 Save Progress for {course_name}", key=f"save_{selected_user}_{course_name}"):
+                                    if st.button(f"💾 Save Progress for {course_name}", key=f"save_{selected_user}_{course_idx}"):
                                         # Load or create progress file
                                         if os.path.exists(USER_PROGRESS_FILE):
                                             progress_df = pd.read_csv(USER_PROGRESS_FILE)
