@@ -14,7 +14,7 @@ USER_PROGRESS_FILE = "data/user_progress.csv"
 USERS_FILE = "data/users.csv"
 
 def load_courses():
-    # Try Supabase first, then fallback to CSV
+    # Load from Supabase only (primary source)
     from utils.auth import USE_SUPABASE
     courses = []
     if USE_SUPABASE:
@@ -33,16 +33,6 @@ def load_courses():
                 "Last Updated": c.get("last_updated", c.get("Last Updated", "")),
                 "id": c.get("id", None)
             })
-    # Always also load from CSV for backup/merge
-    if os.path.exists(DATA_FILE):
-        try:
-            df = pd.read_csv(DATA_FILE)
-            for _, row in df.iterrows():
-                course = row.to_dict()
-                if course not in courses:
-                    courses.append(course)
-        except Exception:
-            pass
     return courses
 
 if 'courses' not in st.session_state:
@@ -205,7 +195,6 @@ else:
             if os.path.exists(log_path):
                 log_df = pd.read_csv(log_path)
                 log_df = log_df.sort_values('timestamp', ascending=False)
-                st.write("DEBUG: log_df", log_df)
                 st.dataframe(log_df, use_container_width=True)
             else:
                 st.info('No audit log entries yet.')
@@ -577,7 +566,7 @@ else:
                                 progress_df = pd.read_csv(USER_PROGRESS_FILE)
                                 user_progress_df = progress_df[progress_df['username'] == selected_user]
                             else:
-                                user_progress_df = pd.DataFrame()
+                                user_progress_df = pd.DataFrame(columns=['username', 'Course', 'Progress %', 'Status', 'Notes', 'Last Updated'])
                             
                             # Display courses for editing
                             for course in st.session_state.courses:
