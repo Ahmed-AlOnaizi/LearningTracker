@@ -450,6 +450,48 @@ else:
                                 writer.writerow(log_entry)
                     else:
                         st.info("No courses available yet.")
+                    st.title("📊 View Reports")
+                    if st.session_state.courses:
+                        st.subheader("Team Progress by Course")
+                        # Load user progress data
+                        from utils.auth import USE_SUPABASE
+                        if USE_SUPABASE:
+                            all_progress = get_all_progress()
+                            progress_df = pd.DataFrame(all_progress)
+                        elif os.path.exists(USER_PROGRESS_FILE):
+                            progress_df = pd.read_csv(USER_PROGRESS_FILE)
+                        else:
+                            progress_df = pd.DataFrame()
+                        # Create summary by course
+                        course_summary = []
+                        for course in st.session_state.courses:
+                            course_name = course['Course']
+                            course_data = progress_df[progress_df['Course'] == course_name] if not progress_df.empty else pd.DataFrame()
+                            if not course_data.empty:
+                                avg_progress = course_data['Progress %'].astype(float).mean()
+                                completed_count = len(course_data[course_data['Status'] == 'Completed'])
+                                total_users = len(course_data)
+                            else:
+                                avg_progress = 0
+                                completed_count = 0
+                                total_users = 0
+                            course_summary.append({
+                                'Course': course_name,
+                                'Team Avg Progress': f"{avg_progress:.1f}%",
+                                'Completed': f"{completed_count}/{total_users}",
+                                'Total Users': total_users
+                            })
+                        summary_df = pd.DataFrame(course_summary)
+                        st.dataframe(summary_df, use_container_width=True)
+                        st.subheader("Individual Progress")
+                        selected_course = st.selectbox("View progress for:", [c['Course'] for c in st.session_state.courses], key="view_reports_select_course")
+                        course_progress = progress_df[progress_df['Course'] == selected_course][['username', 'Progress %', 'Status', 'Last Updated']] if not progress_df.empty else pd.DataFrame()
+                        if not course_progress.empty:
+                            st.dataframe(course_progress, use_container_width=True)
+                        else:
+                            st.info("No progress tracked yet for this course.")
+                    else:
+                        st.info("No courses available yet.")
             
             # Tab for different admin features
             admin_tab1, admin_tab2 = st.tabs(["Users", "Courses"])
