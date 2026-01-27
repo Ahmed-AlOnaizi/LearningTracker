@@ -264,24 +264,28 @@ else:
             # Load user progress from Supabase or CSV
             user_progress_data = load_user_progress(st.session_state.username)
             
-            # Calculate team stats
-            if os.path.exists(USER_PROGRESS_FILE):
-                all_progress = pd.read_csv(USER_PROGRESS_FILE)
+            # Calculate team stats from Supabase or CSV
+            from utils.auth import USE_SUPABASE
+            if USE_SUPABASE:
+                all_progress = get_all_progress()
+                all_progress_df = pd.DataFrame(all_progress)
+            elif os.path.exists(USER_PROGRESS_FILE):
+                all_progress_df = pd.read_csv(USER_PROGRESS_FILE)
             else:
-                all_progress = pd.DataFrame()
+                all_progress_df = pd.DataFrame()
             
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Courses", len(st.session_state.courses))
             with col2:
-                if not all_progress.empty:
-                    team_completed = len(all_progress[all_progress['Status'] == 'Completed'])
+                if not all_progress_df.empty:
+                    team_completed = len(all_progress_df[all_progress_df['Status'] == 'Completed'])
                     st.metric("Team Completed", team_completed)
                 else:
                     st.metric("Team Completed", 0)
             with col3:
-                if not all_progress.empty:
-                    avg_progress = all_progress['Progress %'].mean()
+                if not all_progress_df.empty:
+                    avg_progress = all_progress_df['Progress %'].mean()
                     st.metric("Avg Team Progress", f"{avg_progress:.1f}%")
                 else:
                     st.metric("Avg Team Progress", "0%")
