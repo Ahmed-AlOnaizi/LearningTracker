@@ -28,6 +28,73 @@ USER_PROGRESS_FILE = "data/user_progress.csv"
 USERS_FILE = "data/users.csv"
 REMEMBER_COOKIE_NAME = "learning_tracker_remember_token"
 REMEMBER_DAYS = int(st.secrets.get("REMEMBER_DAYS", 30))
+REMEMBER_DEBUG = str(st.secrets.get("REMEMBER_DEBUG", "false")).lower() in {"1", "true", "yes", "on"}
+
+
+def get_cookie_manager():
+    """Initialize cookie manager using the component's recommended pattern."""
+    if stx is None:
+        return None
+
+    if hasattr(st, "fragment"):
+        @st.fragment
+        def _cookie_manager_fragment():
+            return stx.CookieManager()
+        return _cookie_manager_fragment()
+
+    return stx.CookieManager()
+
+
+def normalize_cookie_token(token):
+    """Normalize token value read from browser cookies."""
+    if token is None:
+        return None
+    token = str(token).strip()
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"'):
+        token = token[1:-1].strip()
+    return token or None
+
+
+def read_remember_token(cookie_manager):
+    """Read remember-me token from cookie store."""
+    if cookie_manager is None:
+        return None
+    try:
+        cookies = cookie_manager.get_all()
+        if isinstance(cookies, dict):
+            return normalize_cookie_token(cookies.get(REMEMBER_COOKIE_NAME))
+    except Exception:
+        pass
+    try:
+        return normalize_cookie_token(cookie_manager.get(REMEMBER_COOKIE_NAME))
+    except Exception:
+        return None
+
+
+def set_remember_token(cookie_manager, token):
+    """Persist remember-me token in browser cookie."""
+    if cookie_manager is None or not token:
+        return False
+    try:
+        cookie_manager.set(
+            REMEMBER_COOKIE_NAME,
+            token,
+            expires_at=(datetime.utcnow() + timedelta(days=REMEMBER_DAYS))
+        )
+        return True
+    except Exception:
+        return False
+
+
+def clear_remember_token(cookie_manager):
+    """Delete remember-me cookie in browser."""
+    if cookie_manager is None:
+        return
+    try:
+        cookie_manager.delete(REMEMBER_COOKIE_NAME)
+    except Exception:
+        pass
+
 
 def load_courses():
     # Load from Supabase only (primary source)
@@ -63,8 +130,6 @@ if 'edit_course_idx' not in st.session_state:
     st.session_state.edit_course_idx = None
 if 'active_session_token' not in st.session_state:
     st.session_state.active_session_token = None
-if 'cookie_bootstrap_done' not in st.session_state:
-    st.session_state.cookie_bootstrap_done = False
 
 # Helper to load user progress from Supabase or CSV
 def load_user_progress(username):
@@ -165,16 +230,11 @@ def delete_course_from_backends(idx):
 
 
 # Cookie manager is optional; app still works without it.
-cookie_manager = stx.CookieManager() if stx is not None else None
-
-# First run in a browser session may not have component cookie values yet.
-if not st.session_state.logged_in and cookie_manager is not None and not st.session_state.cookie_bootstrap_done:
-    st.session_state.cookie_bootstrap_done = True
-    st.rerun()
+cookie_manager = get_cookie_manager()
 
 # Attempt silent auto-login from remember-me token.
 if not st.session_state.logged_in and cookie_manager is not None:
-    remembered_token = cookie_manager.get(REMEMBER_COOKIE_NAME)
+    remembered_token = read_remember_token(cookie_manager)
     if remembered_token:
         remembered_user = validate_remember_session(remembered_token)
         if remembered_user:
@@ -184,7 +244,11 @@ if not st.session_state.logged_in and cookie_manager is not None:
             st.session_state.active_session_token = remembered_token
             st.rerun()
         else:
-            cookie_manager.delete(REMEMBER_COOKIE_NAME)
+            if REMEMBER_DEBUG:
+                st.caption("Remember debug: cookie token found but session validation failed.")
+            clear_remember_token(cookie_manager)
+    elif REMEMBER_DEBUG:
+        st.caption("Remember debug: no remember cookie found in browser.")
 
 # LOGIN SYSTEM
 if not st.session_state.logged_in:
@@ -248,21 +312,16 @@ if not st.session_state.logged_in:
                             # Optional persistent login token.
                             if remember_me and cookie_manager is not None:
                                 session_token, _ = create_remember_session(login_user, days_valid=REMEMBER_DAYS)
-                                if session_token:
-                                    cookie_manager.set(
-                                        REMEMBER_COOKIE_NAME,
-                                        session_token,
-                                        expires_at=(datetime.utcnow() + timedelta(days=REMEMBER_DAYS))
-                                    )
+                                if session_token and set_remember_token(cookie_manager, session_token):
                                     st.session_state.active_session_token = session_token
                                 else:
                                     # If the auth_sessions table is missing, keep normal login behavior.
                                     st.session_state.active_session_token = None
                             else:
-                                existing_token = cookie_manager.get(REMEMBER_COOKIE_NAME) if cookie_manager is not None else None
+                                existing_token = read_remember_token(cookie_manager) if cookie_manager is not None else None
                                 if existing_token:
                                     revoke_remember_session(existing_token)
-                                    cookie_manager.delete(REMEMBER_COOKIE_NAME)
+                                    clear_remember_token(cookie_manager)
                                 st.session_state.active_session_token = None
 
                             st.rerun()
@@ -309,13 +368,13 @@ else:
     
     if st.sidebar.button("Logout"):
         active_token = st.session_state.get("active_session_token")
-        cookie_token = cookie_manager.get(REMEMBER_COOKIE_NAME) if cookie_manager is not None else None
+        cookie_token = read_remember_token(cookie_manager) if cookie_manager is not None else None
 
         if active_token:
             revoke_remember_session(active_token)
         if cookie_token:
             revoke_remember_session(cookie_token)
-            cookie_manager.delete(REMEMBER_COOKIE_NAME)
+            clear_remember_token(cookie_manager)
 
         st.session_state.logged_in = False
         st.session_state.username = None
