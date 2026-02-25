@@ -29,15 +29,6 @@ USERS_FILE = "data/users.csv"
 REMEMBER_COOKIE_NAME = "learning_tracker_remember_token"
 REMEMBER_DAYS = int(st.secrets.get("REMEMBER_DAYS", 30))
 
-
-def get_cookie_manager():
-    """Create one cookie manager instance per user session."""
-    if stx is None:
-        return None
-    if "cookie_manager_instance" not in st.session_state:
-        st.session_state.cookie_manager_instance = stx.CookieManager()
-    return st.session_state.cookie_manager_instance
-
 def load_courses():
     # Load from Supabase only (primary source)
     from utils.auth import USE_SUPABASE
@@ -72,6 +63,8 @@ if 'edit_course_idx' not in st.session_state:
     st.session_state.edit_course_idx = None
 if 'active_session_token' not in st.session_state:
     st.session_state.active_session_token = None
+if 'cookie_bootstrap_done' not in st.session_state:
+    st.session_state.cookie_bootstrap_done = False
 
 # Helper to load user progress from Supabase or CSV
 def load_user_progress(username):
@@ -172,7 +165,12 @@ def delete_course_from_backends(idx):
 
 
 # Cookie manager is optional; app still works without it.
-cookie_manager = get_cookie_manager()
+cookie_manager = stx.CookieManager() if stx is not None else None
+
+# First run in a browser session may not have component cookie values yet.
+if not st.session_state.logged_in and cookie_manager is not None and not st.session_state.cookie_bootstrap_done:
+    st.session_state.cookie_bootstrap_done = True
+    st.rerun()
 
 # Attempt silent auto-login from remember-me token.
 if not st.session_state.logged_in and cookie_manager is not None:
@@ -249,12 +247,12 @@ if not st.session_state.logged_in:
 
                             # Optional persistent login token.
                             if remember_me and cookie_manager is not None:
-                                session_token, expires_at = create_remember_session(login_user, days_valid=REMEMBER_DAYS)
+                                session_token, _ = create_remember_session(login_user, days_valid=REMEMBER_DAYS)
                                 if session_token:
                                     cookie_manager.set(
                                         REMEMBER_COOKIE_NAME,
                                         session_token,
-                                        expires_at=expires_at + timedelta(minutes=5)
+                                        expires_at=(datetime.utcnow() + timedelta(days=REMEMBER_DAYS))
                                     )
                                     st.session_state.active_session_token = session_token
                                 else:
