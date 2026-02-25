@@ -30,12 +30,13 @@ REMEMBER_COOKIE_NAME = "learning_tracker_remember_token"
 REMEMBER_DAYS = int(st.secrets.get("REMEMBER_DAYS", 30))
 
 
-@st.cache_resource
 def get_cookie_manager():
-    """Create one cookie manager instance per app process."""
+    """Create one cookie manager instance per user session."""
     if stx is None:
         return None
-    return stx.CookieManager()
+    if "cookie_manager_instance" not in st.session_state:
+        st.session_state.cookie_manager_instance = stx.CookieManager()
+    return st.session_state.cookie_manager_instance
 
 def load_courses():
     # Load from Supabase only (primary source)
