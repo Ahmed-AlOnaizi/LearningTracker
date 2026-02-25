@@ -130,6 +130,10 @@ if 'edit_course_idx' not in st.session_state:
     st.session_state.edit_course_idx = None
 if 'active_session_token' not in st.session_state:
     st.session_state.active_session_token = None
+if 'pending_cookie_set_token' not in st.session_state:
+    st.session_state.pending_cookie_set_token = None
+if 'pending_cookie_clear' not in st.session_state:
+    st.session_state.pending_cookie_clear = False
 
 # Helper to load user progress from Supabase or CSV
 def load_user_progress(username):
@@ -232,6 +236,16 @@ def delete_course_from_backends(idx):
 # Cookie manager is optional; app still works without it.
 cookie_manager = get_cookie_manager()
 
+# Apply pending cookie operations at the start of a run.
+# Important: avoid calling st.rerun in the same run as set/delete.
+if cookie_manager is not None:
+    if st.session_state.pending_cookie_clear:
+        clear_remember_token(cookie_manager)
+        st.session_state.pending_cookie_clear = False
+    if st.session_state.pending_cookie_set_token:
+        if set_remember_token(cookie_manager, st.session_state.pending_cookie_set_token):
+            st.session_state.pending_cookie_set_token = None
+
 # Attempt silent auto-login from remember-me token.
 if not st.session_state.logged_in and cookie_manager is not None:
     remembered_token = read_remember_token(cookie_manager)
@@ -312,8 +326,10 @@ if not st.session_state.logged_in:
                             # Optional persistent login token.
                             if remember_me and cookie_manager is not None:
                                 session_token, _ = create_remember_session(login_user, days_valid=REMEMBER_DAYS)
-                                if session_token and set_remember_token(cookie_manager, session_token):
+                                if session_token:
                                     st.session_state.active_session_token = session_token
+                                    st.session_state.pending_cookie_set_token = session_token
+                                    st.session_state.pending_cookie_clear = False
                                 else:
                                     # If the auth_sessions table is missing, keep normal login behavior.
                                     st.session_state.active_session_token = None
@@ -321,8 +337,9 @@ if not st.session_state.logged_in:
                                 existing_token = read_remember_token(cookie_manager) if cookie_manager is not None else None
                                 if existing_token:
                                     revoke_remember_session(existing_token)
-                                    clear_remember_token(cookie_manager)
+                                    st.session_state.pending_cookie_clear = True
                                 st.session_state.active_session_token = None
+                                st.session_state.pending_cookie_set_token = None
 
                             st.rerun()
                         else:
@@ -374,7 +391,8 @@ else:
             revoke_remember_session(active_token)
         if cookie_token:
             revoke_remember_session(cookie_token)
-            clear_remember_token(cookie_manager)
+            st.session_state.pending_cookie_clear = True
+        st.session_state.pending_cookie_set_token = None
 
         st.session_state.logged_in = False
         st.session_state.username = None
