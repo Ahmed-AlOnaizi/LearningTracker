@@ -300,7 +300,7 @@ else:
                 with col1:
                     st.markdown(f"### {course['Course']}")
                     st.markdown(f"**Deadline:** {course['Target Date']}")
-                    st.markdown(f"*{course['Description'][:100]}...*" if len(course['Description']) > 100 else f"*{course['Description']}*")
+                    st.markdown(f"*{course['Description']}*")
                     
                     # Show user's progress for this course
                     if course['Course'] in user_progress_data:
