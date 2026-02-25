@@ -61,3 +61,11 @@ Your data now persists forever. No more losing users when the app restarts!
 - Free Supabase tier has 500MB storage + unlimited reads/writes
 - Perfect for your team of 10 people
 - Data is encrypted and secure
+
+## Optional: Enable "Remember this device"
+
+To persist login across app sleep/wake, run the SQL in:
+
+`ADD_AUTH_SESSIONS_TABLE.sql`
+
+This is an additive migration and does not delete or reset existing data.

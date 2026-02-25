@@ -1,5 +1,7 @@
 import hashlib
+import secrets
 import streamlit as st
+from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 
 # Initialize Supabase
@@ -20,6 +22,17 @@ else:
 def hash_password(password):
     """Simple password hashing"""
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _parse_iso_datetime(value):
+    """Parse ISO datetime strings from Supabase safely."""
+    if not value:
+        return None
+    try:
+        # Supabase often returns trailing Z for UTC.
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
 
 def user_exists(username):
     """Check if user already exists"""
@@ -116,3 +129,80 @@ def get_all_users():
     except Exception as e:
         st.error(f"Failed to fetch users: {e}")
         return []
+
+
+def create_remember_session(username, days_valid=30):
+    """
+    Create a persistent session token for "Remember me".
+    Returns (raw_token, expires_at_utc_datetime) or (None, None) on failure.
+    """
+    if not USE_SUPABASE:
+        return None, None
+
+    raw_token = secrets.token_urlsafe(48)
+    token_hash = hash_password(raw_token)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=days_valid)
+
+    try:
+        supabase.table("auth_sessions").insert({
+            "username": username,
+            "token_hash": token_hash,
+            "expires_at": expires_at.isoformat(),
+            "revoked": False
+        }).execute()
+        return raw_token, expires_at
+    except Exception:
+        # Fail silently so login still works if table isn't created yet.
+        return None, None
+
+
+def validate_remember_session(raw_token):
+    """
+    Validate remember-me token.
+    Returns username when valid, otherwise None.
+    """
+    if not USE_SUPABASE or not raw_token:
+        return None
+
+    token_hash = hash_password(raw_token)
+    try:
+        response = (
+            supabase.table("auth_sessions")
+            .select("username, expires_at, revoked")
+            .eq("token_hash", token_hash)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return None
+
+    if not response.data:
+        return None
+
+    session_row = response.data[0]
+    if session_row.get("revoked", False):
+        return None
+
+    expires_at = _parse_iso_datetime(session_row.get("expires_at"))
+    if not expires_at:
+        return None
+
+    if expires_at <= datetime.now(timezone.utc):
+        # Best effort cleanup of expired session.
+        revoke_remember_session(raw_token)
+        return None
+
+    return session_row.get("username")
+
+
+def revoke_remember_session(raw_token):
+    """Revoke a remember-me token."""
+    if not USE_SUPABASE or not raw_token:
+        return False
+
+    token_hash = hash_password(raw_token)
+    try:
+        supabase.table("auth_sessions").update({"revoked": True}).eq("token_hash", token_hash).execute()
+        return True
+    except Exception:
+        return False

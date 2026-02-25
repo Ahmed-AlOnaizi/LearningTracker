@@ -1,11 +1,24 @@
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import csv
 import os
 import json
-from utils.auth import register_user, verify_login, user_exists, is_admin, make_admin
+try:
+    import extra_streamlit_components as stx
+except Exception:
+    stx = None
+from utils.auth import (
+    register_user,
+    verify_login,
+    user_exists,
+    is_admin,
+    make_admin,
+    create_remember_session,
+    validate_remember_session,
+    revoke_remember_session
+)
 from utils.courses_supabase import get_all_courses, add_course, update_course, delete_course
 from utils.progress_supabase import get_user_progress, get_all_progress, upsert_user_progress, delete_user_progress
 
@@ -13,6 +26,16 @@ from utils.progress_supabase import get_user_progress, get_all_progress, upsert_
 DATA_FILE = "data/progress.csv"
 USER_PROGRESS_FILE = "data/user_progress.csv"
 USERS_FILE = "data/users.csv"
+REMEMBER_COOKIE_NAME = "learning_tracker_remember_token"
+REMEMBER_DAYS = int(st.secrets.get("REMEMBER_DAYS", 30))
+
+
+@st.cache_resource
+def get_cookie_manager():
+    """Create one cookie manager instance per app process."""
+    if stx is None:
+        return None
+    return stx.CookieManager()
 
 def load_courses():
     # Load from Supabase only (primary source)
@@ -46,6 +69,8 @@ if 'is_admin' not in st.session_state:
     st.session_state.is_admin = False
 if 'edit_course_idx' not in st.session_state:
     st.session_state.edit_course_idx = None
+if 'active_session_token' not in st.session_state:
+    st.session_state.active_session_token = None
 
 # Helper to load user progress from Supabase or CSV
 def load_user_progress(username):
@@ -144,6 +169,24 @@ def delete_course_from_backends(idx):
     if USE_SUPABASE and supabase_id:
         delete_course(supabase_id)
 
+
+# Cookie manager is optional; app still works without it.
+cookie_manager = get_cookie_manager()
+
+# Attempt silent auto-login from remember-me token.
+if not st.session_state.logged_in and cookie_manager is not None:
+    remembered_token = cookie_manager.get(REMEMBER_COOKIE_NAME)
+    if remembered_token:
+        remembered_user = validate_remember_session(remembered_token)
+        if remembered_user:
+            st.session_state.logged_in = True
+            st.session_state.username = remembered_user
+            st.session_state.is_admin = is_admin(remembered_user)
+            st.session_state.active_session_token = remembered_token
+            st.rerun()
+        else:
+            cookie_manager.delete(REMEMBER_COOKIE_NAME)
+
 # LOGIN SYSTEM
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -183,40 +226,68 @@ if not st.session_state.logged_in:
                                 st.rerun()
                             else:
                                 st.error(f"❌ {msg}")
-            else:
+            if not first_time_setup:
                 auth_tab1, auth_tab2 = st.tabs(["Login", "Register"])
-            
-            with auth_tab1:
-                st.subheader("Login")
-                login_user = st.text_input("Username", key="login_user")
-                login_pass = st.text_input("Password", type="password", key="login_pass")
-                if st.button("Login", key="login_btn"):
-                    if verify_login(login_user, login_pass):
-                        st.session_state.logged_in = True
-                        st.session_state.username = login_user
-                        st.session_state.is_admin = is_admin(login_user)
-                        st.rerun()
-                    else:
-                        st.error("Invalid username or password")
-            
-            with auth_tab2:
-                st.subheader("Create Account")
-                reg_user = st.text_input("Choose Username", key="reg_user")
-                reg_pass = st.text_input("Choose Password", type="password", key="reg_pass")
-                reg_pass_confirm = st.text_input("Confirm Password", type="password", key="reg_pass_confirm")
-                if st.button("Register", key="reg_btn"):
-                    if not reg_user or not reg_pass:
-                        st.error("Username and password required")
-                    elif reg_pass != reg_pass_confirm:
-                        st.error("Passwords don't match")
-                    elif user_exists(reg_user):
-                        st.error("Username already taken")
-                    else:
-                        success, msg = register_user(reg_user, reg_pass)
-                        if success:
-                            st.success(msg)
+
+                with auth_tab1:
+                    st.subheader("Login")
+                    login_user = st.text_input("Username", key="login_user")
+                    login_pass = st.text_input("Password", type="password", key="login_pass")
+                    remember_me = st.checkbox(
+                        "Remember this device",
+                        key="remember_me",
+                        disabled=(cookie_manager is None)
+                    )
+                    if cookie_manager is None:
+                        st.caption("Remember-me is unavailable until cookie support is installed.")
+                    if st.button("Login", key="login_btn"):
+                        if verify_login(login_user, login_pass):
+                            st.session_state.logged_in = True
+                            st.session_state.username = login_user
+                            st.session_state.is_admin = is_admin(login_user)
+
+                            # Optional persistent login token.
+                            if remember_me and cookie_manager is not None:
+                                session_token, expires_at = create_remember_session(login_user, days_valid=REMEMBER_DAYS)
+                                if session_token:
+                                    cookie_manager.set(
+                                        REMEMBER_COOKIE_NAME,
+                                        session_token,
+                                        expires_at=expires_at + timedelta(minutes=5)
+                                    )
+                                    st.session_state.active_session_token = session_token
+                                else:
+                                    # If the auth_sessions table is missing, keep normal login behavior.
+                                    st.session_state.active_session_token = None
+                            else:
+                                existing_token = cookie_manager.get(REMEMBER_COOKIE_NAME) if cookie_manager is not None else None
+                                if existing_token:
+                                    revoke_remember_session(existing_token)
+                                    cookie_manager.delete(REMEMBER_COOKIE_NAME)
+                                st.session_state.active_session_token = None
+
+                            st.rerun()
                         else:
-                            st.error(msg)
+                            st.error("Invalid username or password")
+
+                with auth_tab2:
+                    st.subheader("Create Account")
+                    reg_user = st.text_input("Choose Username", key="reg_user")
+                    reg_pass = st.text_input("Choose Password", type="password", key="reg_pass")
+                    reg_pass_confirm = st.text_input("Confirm Password", type="password", key="reg_pass_confirm")
+                    if st.button("Register", key="reg_btn"):
+                        if not reg_user or not reg_pass:
+                            st.error("Username and password required")
+                        elif reg_pass != reg_pass_confirm:
+                            st.error("Passwords don't match")
+                        elif user_exists(reg_user):
+                            st.error("Username already taken")
+                        else:
+                            success, msg = register_user(reg_user, reg_pass)
+                            if success:
+                                st.success(msg)
+                            else:
+                                st.error(msg)
 else:
     # LOGGED IN - MAIN APP
     # Sidebar
@@ -238,9 +309,19 @@ else:
     page = st.sidebar.radio("Navigation", nav_options)
     
     if st.sidebar.button("Logout"):
+        active_token = st.session_state.get("active_session_token")
+        cookie_token = cookie_manager.get(REMEMBER_COOKIE_NAME) if cookie_manager is not None else None
+
+        if active_token:
+            revoke_remember_session(active_token)
+        if cookie_token:
+            revoke_remember_session(cookie_token)
+            cookie_manager.delete(REMEMBER_COOKIE_NAME)
+
         st.session_state.logged_in = False
         st.session_state.username = None
         st.session_state.is_admin = False
+        st.session_state.active_session_token = None
         st.rerun()
 
     # Main content

@@ -42,6 +42,8 @@ Thumbs.db
 data/progress.csv
 data/user_progress.csv
 data/users.csv
+data/audit_log.csv
+data/
 
 # Environment variables
 .env
