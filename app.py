@@ -15,6 +15,7 @@ from utils.auth import (
     user_exists,
     is_admin,
     make_admin,
+    reset_user_password,
     create_remember_session,
     validate_remember_session,
     revoke_remember_session
@@ -660,6 +661,7 @@ else:
                 users_list = get_all_users()
                 if users_list:
                     non_admin_users = [u['username'] for u in users_list if not u['is_admin']]
+                    all_usernames = [u['username'] for u in users_list]
                     
                     if non_admin_users:
                         user_to_promote = st.selectbox("Select user to make admin:", non_admin_users)
@@ -669,6 +671,36 @@ else:
                             st.rerun()
                     else:
                         st.info("All users are already admins!")
+
+                    st.divider()
+                    st.subheader("Reset User Password")
+                    user_to_reset = st.selectbox(
+                        "Select user to reset password:",
+                        all_usernames,
+                        key="reset_password_user"
+                    )
+                    new_password = st.text_input(
+                        "New password",
+                        type="password",
+                        key="reset_password_new"
+                    )
+                    confirm_new_password = st.text_input(
+                        "Confirm new password",
+                        type="password",
+                        key="reset_password_confirm"
+                    )
+                    if st.button("Reset Password", key="reset_password_btn"):
+                        if not new_password:
+                            st.error("Please enter a new password")
+                        elif new_password != confirm_new_password:
+                            st.error("Passwords don't match")
+                        else:
+                            success, msg = reset_user_password(user_to_reset, new_password)
+                            if success:
+                                st.success(f"Password reset for '{user_to_reset}'.")
+                                st.info("Any remembered sessions for this user were revoked.")
+                            else:
+                                st.error(msg)
                     
                     st.subheader("All Users")
                     users_df = pd.DataFrame(users_list)

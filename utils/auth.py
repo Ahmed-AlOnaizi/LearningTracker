@@ -118,6 +118,30 @@ def make_admin(username):
         st.error(f"Update failed: {e}")
         return False
 
+
+def reset_user_password(username, new_password):
+    """Admin password reset for a user account."""
+    if not USE_SUPABASE:
+        return False, "Database not configured"
+    if not username or not new_password:
+        return False, "Username and new password are required"
+
+    hashed_pw = hash_password(new_password)
+
+    try:
+        supabase.table("users").update({"password": hashed_pw}).eq("username", username).execute()
+    except Exception as e:
+        return False, f"Password reset failed: {e}"
+
+    # Best effort: invalidate any remember-me sessions for this user.
+    try:
+        supabase.table("auth_sessions").update({"revoked": True}).eq("username", username).execute()
+    except Exception:
+        pass
+
+    return True, "Password reset successfully"
+
+
 def get_all_users():
     """Get all users for admin panel"""
     if not USE_SUPABASE:
